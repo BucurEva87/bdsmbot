@@ -10,68 +10,77 @@ for (let channel of config.channels)
     users[channel] = []
 
 class User {
-    constructor({ nick, access }) {
+    constructor({ nick, user, host, access = '' }) {
         this.nick = nick
-        if (access)
-            this.access = Math.max(['', '%', '@', '&', '~'].indexOf(access), 0) * 100
-        else
-            this.access = 0
+        if (user) this.user = user
+        if (host) this.host = host
+        this.access = ['', '%', '@', '&', '~'].indexOf(access) * 100
+
+        this.checkOperatorStatus(host)
 
         return this
     }
 
-    update({ nick, access, user, host, whois }) {
-        if (!this.nick) this.nick = nick || whois?.nick
-        if (!this.user) this.user = user || whois?.user
-        if (!this.host) this.host = host || whois?.host
-
-        // console.log(nick, access, user, host, whois)
-
-        if (access || access === '') {
-            // Check in the database to see if this user has an access level
-            const record = db.select('SELECT * FROM operators WHERE host = ?', [this.host])
-
-            if (record) {
-                this.isOperator = true
-                this.suspended = record.suspended
-            }
-            
-            const storedAccess = record?.level || 0
-
-            if (!Number.isNaN(Number(access))) 
-                this.access = Math.max(Number(access), storedAccess)
-            else
-                this.access = Math.max(Math.max(['', '%', '@', '&', '~'].indexOf(access), 0) * 100, storedAccess)
-
-            if (record?.suspended) this.access = 0
-
-            console.log(this.nick, this.access)
+    update({ nick, user, host, access, channels }) {
+        if (nick) this.nick = nick
+        if (user) this.user = user
+        if (host) {
+            this.host = host
+            this.checkOperatorStatus(host)
         }
 
         return this
     }
 
-    plus(mode) {
+    plus(mode, by, channel) {
         if (mode == 'v') return
 
-        if ('hoaq'.includes(mode)) {
-            const newAccess = '%@&~'['hoaq'.indexOf(mode)]
+        const issuer = users[channel].find(u => u.nick === by)
 
-            if (('%@&~'.indexOf(newAccess) + 1) * 100 > this.access)
-                this.update({ access: '%@&~'['hoaq'.indexOf(mode)] })
-            return
+        if ('hoaq'.includes(mode)) {
+            const newAccess = ('hoaq'.indexOf(mode) + 1) * 100
+
+            // Check if the issuer is an operator and if it has a higher level the the issued
+            if (this.isOperator && newAccess < this.access) {
+                if (!issuer.isOperator || issuer.suspended) return
+                if (this.access >= issuer.access) return
+            }
+            
+            this.access = newAccess
         }
     }
 
-    minus({ args, whois }) {
-        if (args.mode == 'v') return
+    minus({ mode, by, channel, nick, host, channels }) {
+        if (mode == 'v') return
 
-        if ('hoaq'.includes(args.mode)) {
-            var sign = whois.channels.find(c => c.endsWith(args.channel))[0]
+        const issuer = users[channel].find(u => u.nick === by)
 
-            this.update({ access: '+#'.includes(sign) ? '' : sign })
-            return
+        if ('hoaq'.includes(mode)) {
+            const sign = channels.find(c => c.endsWith(channel))[0],
+                  newAccess = '+#'.includes(sign) ? 0 : ('%@&~'.indexOf(sign) + 1) * 100
+
+            // Check if the issuer is an operator and if it has a higher level the the issued
+            if (this.isOperator && newAccess < this.access) {
+                if (!issuer.isOperator || issuer.suspended) return
+                if (this.access >= issuer.access) return
+            }
+
+            this.access = newAccess
         }
+    }
+
+    checkOperatorStatus(host) {
+        if (!host) return
+
+        // Check in the database to see if this user has an access level
+        const record = db.select('SELECT * FROM operators WHERE host = ?', [this.host])
+
+        if (!record) return
+
+        this.access = Math.max(this.access, +record.level)
+        this.isOperator = true
+        this.overseer = record.overseer
+        this.suspended = record.suspended
     }
 
     resolve(initialObject) {

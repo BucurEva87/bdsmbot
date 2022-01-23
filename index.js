@@ -94,7 +94,18 @@ function onJoin(channel, nick, message) {
             client.part('#Apropo', 'Onwards and onwards')
     }
     else {
-        users[channel]?.push(new User({ nick }).update({ user: message.user, host: message.host }))
+        if (!users[channel]) return
+
+        users[channel].push(new User({ nick }))
+
+        inbetween.add({
+            initialObject: { method: 'update' },
+            callback: users[channel][users[channel].length-1]
+        })
+
+        client.whois(nick)
+
+        // users[channel]?.push(new User({ nick }).update({ user: message.user, host: message.host }))
         console.log(bk.log('join', { nick, channel }))
     }
 }
@@ -113,23 +124,17 @@ function onPart(channel, nick, reason, message) {
 }
 
 function onNames(channel, nicks) {
-    for (let prop in nicks) {
-        const index = users[channel]?.findIndex(u => u.nick == prop)
+    if (!users[channel]) return
 
-        if (index === undefined) return
+    for (let nick in nicks) {
+        users[channel].push(new User({ nick, access: nicks[nick] }))
 
-        if (index == -1) {
-            users[channel].push(new User({ nick: prop, access: nicks[prop] }))
-
-            inbetween.add({
-                initialObject: { method: 'update', access: nicks[prop] },
-                callback: users[channel][users[channel].length-1]
-            })
+        inbetween.add({
+            initialObject: { method: 'update' },
+            callback: users[channel][users[channel].length-1]
+        })
     
-            client.whois(prop)
-        }
-        else
-            users[channel][index].update({ access: nicks[prop] })
+        client.whois(nick)
     }
 }
 
@@ -145,38 +150,30 @@ function onNick(oldNick, newNick, channels, message) {
 }
 
 function onWhois(info) {
-    // console.log(info)
     inbetween.resolve(info)
 }
 
 function onPlusMode(channel, by, mode, argument, message) {
-    if (!config.channels.includes(channel)) return
+    if (!users[channel]) return
 
     // User mode
-    if (argument) {
-        const index = users[channel]?.findIndex(u => u.nick == argument)
-        
-        if (index === undefined) return
-
-        users[channel][index].plus(mode)
-    }
+    if (argument)
+        users[channel].find(u => u.nick == argument).plus(mode, by, channel)
 }
 
 function onMinusMode(channel, by, mode, argument, message) {
-    if (!config.channels.includes(channel)) return
+    if (!users[channel]) return
 
     // User mode
     if (argument) {
-        const index = users[channel]?.findIndex(u => u.nick == argument)
-
-        if (index === undefined) return
-
         inbetween.add({
             initialObject: {
                 method: 'minus',
-                args: { mode, channel },
+                mode, 
+                by,
+                channel
             },
-            callback: users[channel][index]
+            callback: users[channel].find(u => u.nick == argument)
         })
 
         client.whois(argument)
@@ -195,7 +192,7 @@ function onError(message) {
 }
 
 function onRaw(message) {
-    console.log(message)
+    // console.log(message)
 }
 
 function nickIsGone(channel, nick) {

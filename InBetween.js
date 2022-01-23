@@ -14,7 +14,7 @@ class InBetween {
 
         const entity = this.pending[0]
 
-        entity.initialObject.whois = whois
+        entity.initialObject = { ...entity.initialObject, ...whois }
 
         // An user was passed
         if (entity.callback instanceof User)
